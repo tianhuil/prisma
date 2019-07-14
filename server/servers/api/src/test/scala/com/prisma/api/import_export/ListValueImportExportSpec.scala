@@ -4,7 +4,7 @@ import com.prisma.api.ApiSpecBase
 import com.prisma.api.connector.DataResolver
 import com.prisma.api.import_export.ImportExport.MyJsonProtocol._
 import com.prisma.api.import_export.ImportExport.{Cursor, ExportRequest, ResultFormat}
-import com.prisma.shared.models.ApiConnectorCapability.ImportExportCapability
+import com.prisma.shared.models.ConnectorCapability.ImportExportCapability
 import com.prisma.shared.models.Project
 import com.prisma.shared.schema_dsl.SchemaDsl
 import com.prisma.utils.await.AwaitUtils
@@ -14,34 +14,60 @@ import play.api.libs.json._
 class ListValueImportExportSpec extends FlatSpec with Matchers with ApiSpecBase with AwaitUtils {
   override def runOnlyForCapabilities = Set(ImportExportCapability)
 
-  val project: Project = SchemaDsl.fromBuilder { schema =>
-    val enum = schema.enum("Enum", Vector("AB", "CD", "\uD83D\uDE0B", "\uD83D\uDCA9"))
-
-    schema
-      .model("Model0")
-      .field("a", _.String)
-      .field("stringList", _.String, isList = true)
-      .field("intList", _.Int, isList = true)
-      .field("floatList", _.Float, isList = true)
-      .field("booleanList", _.Boolean, isList = true)
-
-    schema
-      .model("Model1")
-      .field("a", _.String)
-      .field("enumList", _.Enum, isList = true, enum = Some(enum))
-      .field("datetimeList", _.DateTime, isList = true)
-      .field("jsonList", _.Json, isList = true)
+  lazy val baseProject = SchemaDsl.fromStringV11() {
+    s"""
+      |type Model0 {
+      |  id: ID! @id
+      |  a: String
+      |  stringList: [String] $scalarListDirective 
+      |  intList: [Int] $scalarListDirective
+      |  floatList: [Float] $scalarListDirective
+      |  booleanList: [Boolean] $scalarListDirective
+      |}
+      |
+      |type Model1 {
+      |  id: ID! @id
+      |  a: String
+      |  enumList: [Enum] $scalarListDirective
+      |  datetimeList: [DateTime] $scalarListDirective
+      |  jsonList: [Json] $scalarListDirective
+      |}
+      |
+      |enum Enum {
+      |  AB
+      |  CD
+      |}
+    """.stripMargin
   }
+
+  // work around to allow emojis in enum values
+  lazy val enum        = baseProject.schema.enums.head
+  lazy val emojiedEnum = enum.copy(values = enum.values ++ Vector("\uD83D\uDE0B", "\uD83D\uDCA9"))
+  lazy val project = baseProject.copy(
+    schema = baseProject.schema.copy(
+      enums = List(emojiedEnum),
+      modelTemplates = baseProject.schema.modelTemplates.map { model =>
+        model.copy(
+          fieldTemplates = model.fieldTemplates.map { field =>
+            field.enum match {
+              case Some(_) => field.copy(enum = Some(emojiedEnum))
+              case None    => field
+            }
+          }
+        )
+      }
+    )
+  )
 
   override protected def beforeAll(): Unit = {
     super.beforeAll()
     database.setup(project)
   }
 
-  override def beforeEach(): Unit = database.truncateProjectTables(project)
-  val importer                    = new BulkImport(project)
-  val exporter                    = new BulkExport(project)
-  val dataResolver: DataResolver  = this.dataResolver(project)
+  override def beforeEach(): Unit     = database.truncateProjectTables(project)
+  lazy val importer                   = new BulkImport(project)
+  lazy val exporter                   = new BulkExport(project)
+  lazy val dataResolver: DataResolver = this.dataResolver(project)
 
   "Importing ListValues for a wrong Id" should "fail" in {
 
@@ -60,7 +86,12 @@ class ListValueImportExportSpec extends FlatSpec with Matchers with ApiSpecBase 
 
     val model = project.schema.getModelByName_!("Model0")
     val field = model.getFieldByName_!("stringList")
-    importer.executeImport(lists).await().toString should include(s"Failure inserting into listTable ${model.name}_${field.name} for the id 3 for value ")
+    val res   = importer.executeImport(lists).await().toString
+
+    ifConnectorIsNotSQLite(res should include(s"Failure inserting into listTable ${model.name}_${field.name} for the id 3 for value "))
+    ifConnectorIsSQLite(res should include(
+      s"Failure inserting into listTable ${model.name}_${field.name}: Cause:[SQLITE_CONSTRAINT_FOREIGNKEY]  A foreign key constraint failed (FOREIGN KEY constraint failed)"))
+
   }
 
   "Exporting nodes" should "work (with filesize limit set to 1000 for test) and preserve the order of items" in {
@@ -80,16 +111,20 @@ class ListValueImportExportSpec extends FlatSpec with Matchers with ApiSpecBase 
         |{"_typeName": "Model0", "id": "0", "stringList": ["Just", "a" , "bunch", "of" ,"strings"]},
         |{"_typeName": "Model0", "id": "0", "intList": [100,101,102,103,104,105,106,107,108,109,110,111,112,113,114,115,116,117,118,119,120,121,122,123,124,125,126,127,128,129,130,131,132,133,134,135,136,137,138,139,140,141,142,143,144,145,146,147,148,149,150,151,152,153,154,155,156,157,158,159,160,161,162,163,164,165,166,167,168,169,170,171,172,173,174,175,176,177,178,179,180,181,182,183,184,185,186,187,188,189,190,191,192,193,194,195,196,197,198,199]},
         |{"_typeName": "Model0", "id": "1", "floatList": [1.423423, 3.1234324234, 4.23432424, 4.234234324234]},
-        |{"_typeName": "Model0", "id": "1", "booleanList": [true, true, false, false, true, true]},
+        |{"_typeName": "Model0", "id": "1", "booleanList": [true, true, false, false, true, true]} 
+        |]}""".stripMargin.parseJson
+
+    val lists2 =
+      """{"valueType": "lists", "values": [
         |{"_typeName": "Model0", "id": "1", "booleanList": [false, false, false, false, false, false]},
         |{"_typeName": "Model0", "id": "0", "intList": [100,101,102,103,104,105,106,107,108,109,110,111,112,113,114,115,116,117,118,119,120,121,122,123,124,125,126,127,128,129,130,131,132,133,134,135,136,137,138,139,140,141,142,143,144,145,146,147,148,149,150,151,152,153,154,155,156,157,158,159,160,161,162,163,164,165,166,167,168,169,170,171,172,173,174,175,176,177,178,179,180,181,182,183,184,185,186,187,188,189,190,191,192,193,194,195,196,197,198,199]},
         |{"_typeName": "Model0", "id": "0", "stringList": ["Just", "a" , "bunch", "of" ,"strings"]},
         |{"_typeName": "Model0", "id": "1", "floatList": [1.423423, 3.1234324234, 4.23432424, 4.234234324234]},
         |{"_typeName": "Model0", "id": "1", "booleanList": [true, true, false, false, true, true]}
-        |]}
-        |""".stripMargin.parseJson
+        |]}""".stripMargin.parseJson
 
     importer.executeImport(lists).await().toString should be("[]")
+    importer.executeImport(lists2).await().toString should be("[]")
 
     val cursor     = Cursor(0, 0)
     val request    = ExportRequest("lists", cursor)

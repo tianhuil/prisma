@@ -1,29 +1,29 @@
 package com.prisma.api.mutations.nonEmbedded
 
 import com.prisma.api.ApiSpecBase
-import com.prisma.shared.models.ApiConnectorCapability.JoinRelationsCapability
+import com.prisma.shared.models.ConnectorCapability.JoinRelationLinksCapability
 import com.prisma.shared.schema_dsl.SchemaDsl
 import org.scalatest.{FlatSpec, Matchers}
 
 class NonEmbeddedUpdatedAtShouldChangeSpec extends FlatSpec with Matchers with ApiSpecBase {
-  override def runOnlyForCapabilities = Set(JoinRelationsCapability)
+  override def runOnlyForCapabilities = Set(JoinRelationLinksCapability)
 
-  val project = SchemaDsl.fromString() {
+  val project = SchemaDsl.fromStringV11() {
 
     """type Top {
-      |id: ID! @unique
-      |top: String! @unique
-      |bottom: Bottom
-      |createdAt: DateTime!
-      |updatedAt: DateTime!
+      |  id: ID! @id
+      |  top: String! @unique
+      |  bottom: Bottom @relation(link: INLINE)
+      |  createdAt: DateTime! @createdAt
+      |  updatedAt: DateTime! @updatedAt
       |}
       |
       |type Bottom {
-      |id: ID! @unique
-      |bottom: String! @unique
-      |top: Top
-      |createdAt: DateTime!
-      |updatedAt: DateTime!
+      |  id: ID! @id
+      |  bottom: String! @unique
+      |  top: Top
+      |  createdAt: DateTime! @createdAt
+      |  updatedAt: DateTime! @updatedAt
       |}
       |"""
   }

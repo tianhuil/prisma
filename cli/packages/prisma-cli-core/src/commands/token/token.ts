@@ -1,6 +1,5 @@
 import { Command, flags, Flags } from 'prisma-cli-engine'
-import * as fs from 'fs-extra'
-import * as ncp from 'copy-paste'
+import * as clipboardy from 'clipboardy'
 
 export default class Token extends Command {
   static topic = 'token'
@@ -14,6 +13,10 @@ export default class Token extends Command {
       description: 'Path to .env file to inject env vars',
       char: 'e',
     }),
+    ['project']: flags.string({
+      description: 'Path to Prisma definition file',
+      char: 'p',
+    }),
   }
   async run() {
     const { copy } = this.flags
@@ -21,7 +24,7 @@ export default class Token extends Command {
     await this.definition.load(this.flags, envFile)
     const serviceName = this.definition.service!
     const stage = this.definition.stage!
-    const cluster = this.definition.getCluster()
+    const cluster = await this.definition.getCluster()
     this.env.setActiveCluster(cluster!)
 
     const token = this.definition.getToken(serviceName, stage)
@@ -29,9 +32,7 @@ export default class Token extends Command {
       this.out.log(`There is no secret set in the prisma.yml`)
     } else {
       if (copy) {
-        await new Promise(r => {
-          ncp.copy(token, () => r())
-        })
+        clipboardy.writeSync(token)
         this.out.log(`Token copied to clipboard`)
       } else {
         this.out.log(token)

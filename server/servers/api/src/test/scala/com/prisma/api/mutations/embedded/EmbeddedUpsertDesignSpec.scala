@@ -1,7 +1,7 @@
 package com.prisma.api.mutations.embedded
 
 import com.prisma.api.ApiSpecBase
-import com.prisma.shared.models.ApiConnectorCapability.EmbeddedTypesCapability
+import com.prisma.shared.models.ConnectorCapability.EmbeddedTypesCapability
 import com.prisma.shared.models.{ConnectorCapability, Project}
 import com.prisma.shared.schema_dsl.SchemaDsl
 import org.scalatest.{FlatSpec, Matchers}
@@ -12,17 +12,18 @@ class EmbeddedUpsertDesignSpec extends FlatSpec with Matchers with ApiSpecBase {
 
   "An upsert on the top level" should "execute a nested delete in the update branch" in {
 
-    val project = SchemaDsl.fromString() {
+    val project = SchemaDsl.fromStringV11() {
       """type List{
-        |   id: ID! @unique
+        |   id: ID! @id
         |   uList: String @unique
-        |   listInts: [Int!]!
+        |   listInts: [Int]
         |   todo: Todo
         |}
         |
-        |type Todo @embedded{
-        |   uTodo: String @unique
-        |   todoInts: [Int!]!
+        |type Todo @embedded {
+        |   id: ID! @id
+        |   uTodo: String
+        |   todoInts: [Int]
         |}"""
     }
 
@@ -48,17 +49,18 @@ class EmbeddedUpsertDesignSpec extends FlatSpec with Matchers with ApiSpecBase {
 
   "An upsert on the top level" should "only execute the nested create mutations of the correct update branch" in {
 
-    val project = SchemaDsl.fromString() {
-      """type List{
-        |   id: ID! @unique
+    val project = SchemaDsl.fromStringV11() {
+      """type List {
+        |   id: ID! @id
         |   uList: String @unique
-        |   listInts: [Int!]!
+        |   listInts: [Int]
         |   todo: Todo
         |}
         |
-        |type Todo @embedded{
-        |   uTodo: String @unique
-        |   todoInts: [Int!]!
+        |type Todo @embedded {
+        |   id: ID! @id
+        |   uTodo: String
+        |   todoInts: [Int]
         |}"""
     }
 
@@ -84,17 +86,18 @@ class EmbeddedUpsertDesignSpec extends FlatSpec with Matchers with ApiSpecBase {
 
   "An upsert on the top level" should "only execute the scalar lists of the correct create branch" in {
 
-    val project = SchemaDsl.fromString() {
-      """type List{
-        |   id: ID! @unique
+    val project = SchemaDsl.fromStringV11() {
+      """type List {
+        |   id: ID! @id
         |   uList: String @unique
-        |   listInts: [Int!]!
+        |   listInts: [Int]
         |   todo: Todo
         |}
         |
-        |type Todo @embedded{
-        |   uTodo: String @unique
-        |   todoInts: [Int!]!
+        |type Todo @embedded {
+        |   id: ID! @id
+        |   uTodo: String
+        |   todoInts: [Int]
         |}"""
     }
 
@@ -117,18 +120,18 @@ class EmbeddedUpsertDesignSpec extends FlatSpec with Matchers with ApiSpecBase {
 
   "An upsert on the top level" should "be able to reset lists to empty" in {
 
-    val project = SchemaDsl.fromString() {
+    val project = SchemaDsl.fromStringV11() {
       """type List{
-        |   id: ID! @unique
+        |   id: ID! @id
         |   uList: String @unique
-        |   listInts: [Int!]!
-        |   todo: Todo
+        |   listInts: [Int]
+        |   todo: Todo @relation(link: INLINE)
         |}
         |
-        |type Todo{
-        |   id: ID! @unique
+        |type Todo {
+        |   id: ID! @id
         |   uTodo: String @unique
-        |   todoInts: [Int!]!
+        |   todoInts: [Int]
         |   list: List
         |}"""
     }
@@ -168,18 +171,18 @@ class EmbeddedUpsertDesignSpec extends FlatSpec with Matchers with ApiSpecBase {
 
   "An upsert on the top level" should "only execute the scalar lists of the correct update branch" in {
 
-    val project = SchemaDsl.fromString() {
-      """type List{
-        |   id: ID! @unique
+    val project = SchemaDsl.fromStringV11() {
+      """type List {
+        |   id: ID! @id
         |   uList: String @unique
-        |   listInts: [Int!]!
-        |   todo: Todo
+        |   listInts: [Int]
+        |   todo: Todo @relation(link: INLINE)
         |}
         |
-        |type Todo{
-        |   id: ID! @unique
+        |type Todo {
+        |   id: ID! @id
         |   uTodo: String @unique
-        |   todoInts: [Int!]!
+        |   todoInts: [Int]
         |   list: List
         |}"""
     }
@@ -212,29 +215,41 @@ class EmbeddedUpsertDesignSpec extends FlatSpec with Matchers with ApiSpecBase {
 
   "A nested upsert" should "only execute the nested scalarlists of the correct update branch" in {
 
-    val project = SchemaDsl.fromString() {
-      """type List{
-        |   id: ID! @unique
+    val project = SchemaDsl.fromStringV11() {
+      """type List {
+        |   id: ID! @id
         |   uList: String @unique
-        |   listInts: [Int!]!
-        |   todoes: [Todo!]!
+        |   listInts: [Int]
+        |   todoes: [Todo]
         |}
         |
         |type Todo @embedded {
-        |   uTodo: String @unique
-        |   todoInts: [Int!]!
+        |   id: ID! @id
+        |   uTodo: String
+        |   todoInts: [Int]
         |}"""
     }
 
     database.setup(project)
 
-    server.query("""mutation {createList(data: {uList: "A" todoes: {create: {uTodo: "B", todoInts: {set: [3, 4]}}}}){id}}""", project)
+    val setupResult =
+      server.query(
+        """mutation {
+          |   createList(data: {
+          |       uList: "A" todoes: {create: {uTodo: "B", todoInts: {set: [3, 4]}}}}
+          |   ){ 
+          |     todoes { id } 
+          |   }
+          |}""".stripMargin,
+        project
+      )
+    val todoId = setupResult.pathAsString("data.createList.todoes.[0].id")
 
     server
       .query(
         s"""mutation{updateList(where:{uList: "A"}
         |                       data:{todoes: { upsert:{
-        |                               where:{uTodo: "B"}
+        |                               where:{id: "$todoId"}
         |		                            create:{uTodo:"Should Not Matter", todoInts:{set: [300, 400]}}
         |		                            update:{uTodo: "C", todoInts:{set: [700, 800]}}
         |}}
@@ -250,29 +265,39 @@ class EmbeddedUpsertDesignSpec extends FlatSpec with Matchers with ApiSpecBase {
 
   "A nested upsert" should "only execute the nested scalarlists of the correct create branch" in {
 
-    val project = SchemaDsl.fromString() {
-      """type List{
-        |   id: ID! @unique
+    val project = SchemaDsl.fromStringV11() {
+      """type List {
+        |   id: ID! @id
         |   uList: String @unique
-        |   listInts: [Int!]!
-        |   todoes: [Todo!]!
+        |   listInts: [Int]
+        |   todoes: [Todo]
         |}
         |
         |type Todo @embedded {
-        |   uTodo: String @unique
-        |   todoInts: [Int!]!
+        |   id: ID! @id
+        |   uTodo: String
+        |   todoInts: [Int]
         |}"""
     }
 
     database.setup(project)
 
-    server.query("""mutation {createList(data: {uList: "A" todoes: {create: {uTodo: "B", todoInts: {set: [3, 4]}}}}){id}}""", project)
+    val setupResult = server.query(
+      """mutation { 
+        |   createList(data: { 
+        |       uList: "A" todoes: {create: {uTodo: "B", todoInts: {set: [3, 4]}}}
+        |   }){
+        |     todoes { id }
+        |   }
+        |}""".stripMargin,
+      project
+    )
 
     server
       .query(
         s"""mutation{updateList(where:{uList: "A"}
            |                    data:{todoes: { upsert:{
-           |                               where:{uTodo: "Does not Matter"}
+           |                               where:{id: "Does not Matter"}
            |		                           create:{uTodo:"C", todoInts:{set: [100, 200]}}
            |		                           update:{uTodo:"D", todoInts:{set: [700, 800]}}
            |}}
@@ -288,17 +313,18 @@ class EmbeddedUpsertDesignSpec extends FlatSpec with Matchers with ApiSpecBase {
 
   "A nested upsert" should "only execute the nested scalarlists of the correct create branch for to many relations" in {
 
-    val project = SchemaDsl.fromString() {
+    val project = SchemaDsl.fromStringV11() {
       """type List{
-        |   id: ID! @unique
+        |   id: ID! @id
         |   uList: String @unique
-        |   listInts: [Int!]!
-        |   todoes: [Todo!]!
+        |   listInts: [Int]
+        |   todoes: [Todo]
         |}
         |
-        |type Todo @embedded{
-        |   uTodo: String @unique
-        |   todoInts: [Int!]!
+        |type Todo @embedded {
+        |   id: ID! @id
+        |   uTodo: String
+        |   todoInts: [Int]
         |}"""
     }
 
@@ -310,7 +336,7 @@ class EmbeddedUpsertDesignSpec extends FlatSpec with Matchers with ApiSpecBase {
       .query(
         s"""mutation{updateList(where:{uList: "A"}
            |                    data:{todoes: { upsert:{
-           |                               where:{uTodo: "Does not Matter"}
+           |                               where:{id: "Does not Matter"}
            |		                           create:{uTodo:"C", todoInts:{set: [100, 200]}}
            |		                           update:{uTodo:"D", todoInts:{set: [700, 800]}}
            |}}
@@ -326,31 +352,43 @@ class EmbeddedUpsertDesignSpec extends FlatSpec with Matchers with ApiSpecBase {
 
   "A nested upsert" should "be able to reset lists to empty" in {
 
-    val project = SchemaDsl.fromString() {
-      """type List{
-        |   id: ID! @unique
+    val project = SchemaDsl.fromStringV11() {
+      """type List {
+        |   id: ID! @id
         |   uList: String @unique
-        |   listInts: [Int!]!
-        |   todoes: [Todo!]!
+        |   listInts: [Int]
+        |   todoes: [Todo]
         |}
         |
         |type Todo @embedded {
-        |   uTodo: String @unique
-        |   todoInts: [Int!]!
+        |   id: ID! @id
+        |   uTodo: String
+        |   todoInts: [Int]
         |}"""
     }
 
     database.setup(project)
 
-    server.query("""mutation {createList(data: {uList: "A" todoes: {create: {uTodo: "B", todoInts: {set: [3, 4]}}}}){id}}""", project)
+    val setupResult = server.query(
+      """
+        |mutation { 
+        |   createList(data: {
+        |     uList: "A" todoes: {create: {uTodo: "B", todoInts: {set: [3, 4]}}}
+        |   }){
+        |     todoes { id }
+        |   }
+        |}""".stripMargin,
+      project
+    )
+    val todoId = setupResult.pathAsString("data.createList.todoes.[0].id")
 
     server
       .query(
         s"""mutation{updateList(where:{uList: "A"}
            |                    data:{todoes: { upsert:{
-           |                               where:{uTodo: "B"}
-           |		                           create:{uTodo:"C", todoInts:{set: [100, 200]}}
-           |		                           update:{ todoInts:{set: []}}
+           |                               where:{ id: "$todoId" }
+           |		                           create:{ uTodo:"C", todoInts:{ set: [100, 200] } }
+           |		                           update:{ todoInts:{ set: [] } }
            |}}
            |}){id}}""".stripMargin,
         project
@@ -364,20 +402,22 @@ class EmbeddedUpsertDesignSpec extends FlatSpec with Matchers with ApiSpecBase {
 
   "A nested upsert" should "execute the nested connect mutations of the correct create branch" in {
 
-    val project = SchemaDsl.fromString() {
-      """type List{
-        |   id: ID! @unique
+    val project = SchemaDsl.fromStringV11() {
+      """type List {
+        |   id: ID! @id
         |   uList: String @unique
-        |   todoes: [Todo!]!
+        |   todoes: [Todo]
         |}
         |
-        |type Todo @embedded{
-        |   uTodo: String @unique
-        |   tags: [Tag!]!
+        |type Todo @embedded {
+        |   id: ID! @id
+        |   uTodo: String
+        |   tags: [Tag]
         |}
         |
-        |type Tag @embedded{
-        |   uTag: String @unique
+        |type Tag @embedded {
+        |   id: ID! @id
+        |   uTag: String
         |}"""
     }
 
@@ -390,9 +430,9 @@ class EmbeddedUpsertDesignSpec extends FlatSpec with Matchers with ApiSpecBase {
         s"""mutation{updateList(where:{uList: "A"}
            |                    data:{todoes: {
            |                        upsert:{
-           |                               where:{uTodo: "B"}
-           |		                           create:{uTodo:"C" tags: {create: {uTag: "D"}}}
-           |		                           update:{uTodo:"Should Not Matter" tags: {create: {uTag: "E"}}}
+           |                               where:{ id: "does-not-exist" }
+           |		                           create:{ uTodo:"C" tags: {create: {uTag: "D"}} }
+           |		                           update:{ uTodo:"Should Not Matter" tags: {create: {uTag: "E"}} }
            |}}
            |}){id}}""",
         project
@@ -406,35 +446,49 @@ class EmbeddedUpsertDesignSpec extends FlatSpec with Matchers with ApiSpecBase {
 
   "A nested upsert" should "execute the nested connect mutations of the correct update branch" in {
 
-    val project = SchemaDsl.fromString() {
-      """type List{
-        |   id: ID! @unique
+    val project = SchemaDsl.fromStringV11() {
+      """type List {
+        |   id: ID! @id
         |   uList: String @unique
-        |   todoes: [Todo!]!
+        |   todoes: [Todo]
         |}
         |
-        |type Todo @embedded{
-        |   uTodo: String @unique
-        |   tags: [Tag!]!
+        |type Todo @embedded {
+        |   id: ID! @id
+        |   uTodo: String
+        |   tags: [Tag]
         |}
         |
-        |type Tag @embedded{
-        |   uTag: String @unique
+        |type Tag @embedded {
+        |   id: ID! @id
+        |   uTag: String
         |}"""
     }
 
     database.setup(project)
 
-    server.query("""mutation {createList(data: {uList: "A" todoes: {create: {uTodo: "B"}}}){id}}""", project)
+    val setupResult = server.query(
+      """
+        |mutation {
+        |   createList(data: {
+        |     uList: "A" 
+        |     todoes: {create: {uTodo: "B"}}
+        |   }){
+        |     todoes { id }
+        |   }
+        |}""".stripMargin,
+      project
+    )
+    val todoId = setupResult.pathAsString("data.createList.todoes.[0].id")
 
     server
       .query(
         s"""mutation{updateList(where:{uList: "A"}
            |                    data:{todoes: {
            |                        upsert:{
-           |                               where:{uTodo: "B"}
-           |		                           create:{uTodo:"Should Not Matter" tags: {create: {uTag: "E"}}}
-           |		                           update:{uTodo:"C" tags: {create: {uTag: "D"}}}
+           |                               where:{ id: "$todoId" }
+           |		                           create:{ uTodo:"Should Not Matter" tags: {create: {uTag: "E"}} }
+           |		                           update:{ uTodo:"C" tags: {create: {uTag: "D"}} }
            |}}
            |}){id}}""",
         project

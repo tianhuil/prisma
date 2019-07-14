@@ -2,7 +2,7 @@ package com.prisma.api.queries.embedded
 
 import com.prisma.IgnoreMongo
 import com.prisma.api.ApiSpecBase
-import com.prisma.shared.models.ApiConnectorCapability.{EmbeddedScalarListsCapability, EmbeddedTypesCapability}
+import com.prisma.shared.models.ConnectorCapability.{EmbeddedScalarListsCapability, EmbeddedTypesCapability}
 import com.prisma.shared.schema_dsl.SchemaDsl
 import org.scalatest.{FlatSpec, Matchers}
 
@@ -12,15 +12,15 @@ class EmbeddedScalarListsQuerySpec extends FlatSpec with Matchers with ApiSpecBa
 
   "Nested scalar lists" should "work in creates " in {
 
-    val project = SchemaDsl.fromString() {
+    val project = SchemaDsl.fromStringV11() {
       s"""type List{
-         |   id: ID! @unique
-         |   todos: [Todo!]!
-         |   listInts: [Int!]!
+         |   id: ID! @id
+         |   todos: [Todo]
+         |   listInts: [Int]
          |}
          |
          |type Todo @embedded{
-         |   todoInts: [Int!]!
+         |   todoInts: [Int]
          |}"""
     }
 
@@ -38,20 +38,20 @@ class EmbeddedScalarListsQuerySpec extends FlatSpec with Matchers with ApiSpecBa
 
   "Deeply nested scalar lists" should "work in creates " in {
 
-    val project = SchemaDsl.fromString() {
+    val project = SchemaDsl.fromStringV11() {
       s"""type List {
-         |   id: ID! @unique
+         |   id: ID! @id
          |   todo: Todo
-         |   listInts: [Int!]!
+         |   listInts: [Int]
          |}
          |
          |type Todo @embedded {
          |   tag: Tag
-         |   todoInts: [Int!]!
+         |   todoInts: [Int]
          |}
          |
          |type Tag @embedded {
-         |   tagInts: [Int!]!
+         |   tagInts: [Int]
          |}
          |"""
     }
@@ -70,23 +70,25 @@ class EmbeddedScalarListsQuerySpec extends FlatSpec with Matchers with ApiSpecBa
 
   "Deeply nested scalar lists" should "work in updates " in {
 
-    val project = SchemaDsl.fromString() {
+    val project = SchemaDsl.fromStringV11() {
       s"""type List{
-         |   id: ID! @unique
+         |   id: ID! @id
          |   todo: Todo
          |   uList: String! @unique
-         |   listInts: [Int!]!
+         |   listInts: [Int]
          |}
          |
          |type Todo @embedded {
-         |   uTodo: String! @unique
+         |   id: ID! @id
+         |   uTodo: String!
          |   tag: Tag
-         |   todoInts: [Int!]!
+         |   todoInts: [Int]
          |}
          |
          |type Tag @embedded {
-         |   uTag: String! @unique
-         |   tagInts: [Int!]!
+         |   id: ID! @id
+         |   uTag: String!
+         |   tagInts: [Int]
          |}
          |"""
     }
@@ -113,17 +115,18 @@ class EmbeddedScalarListsQuerySpec extends FlatSpec with Matchers with ApiSpecBa
 
   "Nested scalar lists" should "work in upserts and only execute one branch of the upsert" in {
 
-    val project = SchemaDsl.fromString() {
+    val project = SchemaDsl.fromStringV11() {
       s"""type List{
-         |   id: ID! @unique
+         |   id: ID! @id
          |   todo: Todo
          |   uList: String! @unique
-         |   listInts: [Int!]!
+         |   listInts: [Int]
          |}
          |
          |type Todo @embedded {
-         |   uTodo: String! @unique
-         |   todoInts: [Int!]!
+         |   id: ID! @id
+         |   uTodo: String!
+         |   todoInts: [Int]
          |}
          |"""
     }

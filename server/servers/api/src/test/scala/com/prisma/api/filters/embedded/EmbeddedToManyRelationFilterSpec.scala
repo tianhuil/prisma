@@ -1,7 +1,7 @@
 package com.prisma.api.filters.embedded
 
 import com.prisma.api.ApiSpecBase
-import com.prisma.shared.models.ApiConnectorCapability.EmbeddedTypesCapability
+import com.prisma.shared.models.ConnectorCapability.EmbeddedTypesCapability
 import com.prisma.shared.schema_dsl.SchemaDsl
 import org.scalatest.{FlatSpec, Matchers}
 
@@ -11,22 +11,22 @@ class EmbeddedToManyRelationFilterSpec extends FlatSpec with Matchers with ApiSp
 
   "Using a toMany relational filter with _some" should "work" in {
 
-    val project = SchemaDsl.fromString() {
+    val project = SchemaDsl.fromStringV11() {
       """type Top {
-        |   id: ID! @unique
+        |   id: ID! @id
         |   unique: Int! @unique
         |   name: String!
-        |   middle: [Middle!]!
+        |   middle: [Middle]
         |}
         |
         |type Middle @embedded{
-        |   unique: Int! @unique
+        |   unique: Int!
         |   name: String!
-        |   bottom: [Bottom!]!
+        |   bottom: [Bottom]
         |}
         |
         |type Bottom @embedded{
-        |   unique: Int! @unique
+        |   unique: Int!
         |   name: String!
         |}"""
     }
@@ -62,29 +62,32 @@ class EmbeddedToManyRelationFilterSpec extends FlatSpec with Matchers with ApiSp
 
     res1.toString should be("""{"data":{"createTop":{"unique":1}}}""")
 
-    val query = server.query(
-      s"""query { tops(where:{middle_some:{bottom_some:{unique: 111, name:"Bottom"}}})
-         |{
-         |  unique
-         |}}""",
-      project
-    )
-
+    val query = server.query(s"""query { tops(where:{middle_some:{bottom_some:{unique: 111, name:"Bottom"}}}){unique}}""", project)
     query.toString should be("""{"data":{"tops":[{"unique":1}]}}""")
+
+    val query2 = server.query(s"""query { tops(where:{middle_none:{bottom_some:{unique: 111, name:"Bottom"}}}){unique}}""", project)
+    query2.toString should be("""{"data":{"tops":[]}}""")
+
+    val query3 = server.query(s"""query { tops(where:{middle_every:{bottom_some:{unique: 111, name:"Bottom"}}}){unique}}""", project)
+    query3.toString should be("""{"data":{"tops":[]}}""")
+
+    val query4 = server.query(s"""query { tops(where:{middle_some:{bottom_every:{unique: 111, name:"Bottom"}}}){unique}}""", project)
+    query4.toString should be("""{"data":{"tops":[{"unique":1}]}}""")
+
   }
 
   "Using a toMany relational filter with _every" should "work 2" in {
 
-    val project = SchemaDsl.fromString() {
+    val project = SchemaDsl.fromStringV11() {
       """type Top {
-        |   id: ID! @unique
-        |   unique: Int! @unique
+        |   id: ID! @id
+        |   unique: Int!
         |   name: String!
-        |   middle: [Middle!]!
+        |   middle: [Middle]
         |}
         |
         |type Middle @embedded{
-        |   unique: Int! @unique
+        |   unique: Int!
         |   name: String!
         |}"""
     }
@@ -159,16 +162,16 @@ class EmbeddedToManyRelationFilterSpec extends FlatSpec with Matchers with ApiSp
 
   "Using a toMany relational filter with _none" should "work" in {
 
-    val project = SchemaDsl.fromString() {
+    val project = SchemaDsl.fromStringV11() {
       """type Top {
-        |   id: ID! @unique
-        |   unique: Int! @unique
+        |   id: ID! @id
+        |   unique: Int!
         |   name: String!
-        |   middle: [Middle!]!
+        |   middle: [Middle]
         |}
         |
         |type Middle @embedded{
-        |   unique: Int! @unique
+        |   unique: Int!
         |   name: String!
         |}"""
     }
@@ -269,16 +272,16 @@ class EmbeddedToManyRelationFilterSpec extends FlatSpec with Matchers with ApiSp
 
   "Using a toMany relational filter with _every" should "work" in {
 
-    val project = SchemaDsl.fromString() {
+    val project = SchemaDsl.fromStringV11() {
       """type Top {
-        |   id: ID! @unique
-        |   unique: Int! @unique
+        |   id: ID! @id
+        |   unique: Int!
         |   name: String!
-        |   middle: [Middle!]!
+        |   middle: [Middle]
         |}
         |
         |type Middle @embedded{
-        |   unique: Int! @unique
+        |   unique: Int!
         |   name: String!
         |}"""
     }

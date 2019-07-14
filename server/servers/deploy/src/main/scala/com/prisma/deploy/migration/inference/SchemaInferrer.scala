@@ -1,30 +1,29 @@
 package com.prisma.deploy.migration.inference
 
-import com.prisma.deploy.connector.InferredTables
-import com.prisma.deploy.migration.DirectiveTypes.{MongoInlineRelationDirective, PGInlineRelationDirective, RelationTableDirective}
+import com.prisma.deploy.connector.MissingBackRelations
 import com.prisma.deploy.migration.validation._
-import com.prisma.deploy.schema.InvalidRelationName
+import com.prisma.deploy.schema.RelationNameNeeded
 import com.prisma.deploy.validation.NameConstraints
-import com.prisma.shared.models.ApiConnectorCapability.{MigrationsCapability, MongoRelationsCapability}
+import com.prisma.shared.models.ConnectorCapability.{MigrationsCapability, RelationLinkListCapability, RelationLinkTableCapability}
+import com.prisma.shared.models.FieldBehaviour.{IdBehaviour, IdStrategy}
 import com.prisma.shared.models.Manifestations._
-import com.prisma.shared.models.{OnDelete, RelationSide, ReservedFields, _}
+import com.prisma.shared.models.{OnDelete, RelationSide, _}
 import com.prisma.utils.await.AwaitUtils
 import cool.graph.cuid.Cuid
 import sangria.ast.{Field => _}
 
 trait SchemaInferrer {
-  def infer(baseSchema: Schema, schemaMapping: SchemaMapping, graphQlSdl: PrismaSdl, inferredTables: InferredTables): Schema
+  def infer(baseSchema: Schema, schemaMapping: SchemaMapping, graphQlSdl: PrismaSdl): Schema
 }
 
 object SchemaInferrer {
-  def apply(capabilities: Set[ConnectorCapability]) = new SchemaInferrer {
-    override def infer(baseSchema: Schema, schemaMapping: SchemaMapping, graphQlSdl: PrismaSdl, inferredTables: InferredTables) =
+  def apply(capabilities: ConnectorCapabilities) = new SchemaInferrer {
+    override def infer(baseSchema: Schema, schemaMapping: SchemaMapping, graphQlSdl: PrismaSdl) =
       SchemaInferrerImpl(
         baseSchema = baseSchema,
         schemaMapping = schemaMapping,
         prismaSdl = graphQlSdl,
-        capabilities = capabilities,
-        inferredTables = inferredTables
+        capabilities = capabilities
       ).infer()
   }
 }
@@ -33,21 +32,26 @@ case class SchemaInferrerImpl(
     baseSchema: Schema,
     schemaMapping: SchemaMapping,
     prismaSdl: PrismaSdl,
-    capabilities: Set[ConnectorCapability],
-    inferredTables: InferredTables
+    capabilities: ConnectorCapabilities
 ) extends AwaitUtils {
 
-  def infer(): Schema = Schema(modelTemplates = nextModels.toList, relationTemplates = nextRelations.toList, enums = nextEnums.toList)
+  val hasMigrations = capabilities.has(MigrationsCapability)
+  val isMongo       = capabilities.has(RelationLinkListCapability)
+  val isSql         = !isMongo
+
+  def infer(): Schema = {
+    val schemaWithOutOptionalBackrelations = Schema(
+      modelTemplates = nextModels.toList,
+      relationTemplates = nextRelations.toList,
+      enums = nextEnums.toList,
+      version = Some(Schema.version.v11)
+    )
+    val schemaWithOptionalBackRelations = MissingBackRelations.add(schemaWithOutOptionalBackrelations)
+    schemaWithOptionalBackRelations
+  }
 
   lazy val nextModels: Vector[ModelTemplate] = {
-    prismaSdl.types.map { prismaType =>
-      val fieldNames = prismaType.fields.map(_.name)
-      val hiddenReservedFields = if (capabilities.contains(MigrationsCapability)) {
-        val missingReservedFields = ReservedFields.reservedFieldNames.filterNot(fieldNames.contains)
-        missingReservedFields.map(ReservedFields.reservedFieldFor)
-      } else {
-        Vector.empty
-      }
+    prismaSdl.modelTypes.map { prismaType =>
       val manifestation = prismaType.tableName.map(ModelManifestation)
 
       val stableIdentifier = baseSchema.getModelByName(schemaMapping.getPreviousModelName(prismaType.name)) match {
@@ -59,7 +63,7 @@ case class SchemaInferrerImpl(
         name = prismaType.name,
         stableIdentifier = stableIdentifier,
         isEmbedded = prismaType.isEmbedded,
-        fieldTemplates = fieldsForType(prismaType).toList ++ hiddenReservedFields,
+        fieldTemplates = fieldsForType(prismaType).toList,
         manifestation = manifestation
       )
     }
@@ -99,8 +103,8 @@ case class SchemaInferrerImpl(
                 field.relationSide
 
               case _ =>
-                val relationFieldNames = prismaType.relationalPrismaFields.filter(f => f.relationName.contains(relation.name)).map(_.name)
-                if (relationFieldNames.exists(name => name < prismaField.name)) RelationSide.B else RelationSide.A
+                val relationFieldNames = prismaType.relationFields.filter(f => f.relationName.contains(relation.name)).map(_.name)
+                if (relationFieldNames.exists(name => name < prismaField.name)) RelationSide.B else RelationSide.A //Fixme here the side is implemented for the field
             }
           } else {
             if (relation.modelAName == prismaType.name) RelationSide.A else RelationSide.B
@@ -110,6 +114,13 @@ case class SchemaInferrerImpl(
 
       prismaField match {
         case scalarField: ScalarPrismaField =>
+          val isAutoGeneratedByDb = {
+            val hasAutoGeneratingBehaviour = scalarField.behaviour.exists {
+              case x: IdBehaviour => x.strategy == IdStrategy.Auto || x.strategy == IdStrategy.Sequence
+              case _              => false
+            }
+            hasAutoGeneratingBehaviour && scalarField.typeIdentifier == TypeIdentifier.Int
+          }
           Some(
             FieldTemplate(
               name = scalarField.name,
@@ -117,12 +128,14 @@ case class SchemaInferrerImpl(
               isRequired = scalarField.isRequired,
               isList = scalarField.isList,
               isUnique = scalarField.isUnique,
-              isAutoGenerated = !capabilities.contains(MigrationsCapability) && scalarField.typeIdentifier == TypeIdentifier.Int && scalarField.name == "id",
+              isAutoGeneratedByDb = isAutoGeneratedByDb,
               enum = None,
               defaultValue = scalarField.defaultValue,
               relationName = None,
               relationSide = None,
-              manifestation = scalarField.columnName.map(FieldManifestation)
+              manifestation = scalarField.columnName.map(FieldManifestation),
+              behaviour = scalarField.behaviour,
+              isHidden = scalarField.isHidden
             ))
 
         case enumField: EnumPrismaField =>
@@ -137,7 +150,8 @@ case class SchemaInferrerImpl(
               defaultValue = enumField.defaultValue,
               relationName = None,
               relationSide = None,
-              manifestation = enumField.columnName.map(FieldManifestation)
+              manifestation = enumField.columnName.map(FieldManifestation),
+              behaviour = enumField.behaviour
             ))
         case relationField: RelationalPrismaField =>
           val relation = relationFromRelationField(relationField)
@@ -153,7 +167,8 @@ case class SchemaInferrerImpl(
               defaultValue = None,
               relationName = relation.map(_.name),
               relationSide = inferRelationSide(relation),
-              manifestation = None
+              manifestation = None,
+              behaviour = None
             ))
       }
     }
@@ -163,8 +178,8 @@ case class SchemaInferrerImpl(
 
   lazy val nextRelations: Set[RelationTemplate] = {
     val tmp = for {
-      prismaType    <- prismaSdl.types
-      relationField <- prismaType.relationalPrismaFields
+      prismaType    <- prismaSdl.modelTypes
+      relationField <- prismaType.relationFields
     } yield {
       val model1       = prismaType.name
       val model2       = relationField.referencesType
@@ -173,8 +188,14 @@ case class SchemaInferrerImpl(
       val model1OnDelete: OnDelete.Value = relationField.cascade
       val model2OnDelete: OnDelete.Value = relatedField.map(_.cascade).getOrElse(OnDelete.SetNull)
 
-      val (modelA, modelAOnDelete, modelB, modelBOnDelete) =
-        if (model1 < model2) (model1, model1OnDelete, model2, model2OnDelete) else (model2, model2OnDelete, model1, model1OnDelete)
+      val (modelA, modelAOnDelete, modelB, modelBOnDelete) = () match {
+        case _ if model1 < model2                                                                            => (model1, model1OnDelete, model2, model2OnDelete)
+        case _ if model1 > model2                                                                            => (model2, model2OnDelete, model1, model1OnDelete)
+        case _ if (model1 == model2) && relatedField.isDefined && relationField.name < relatedField.get.name => (model1, model1OnDelete, model2, model2OnDelete)
+        case _ if (model1 == model2) && relatedField.isDefined && relationField.name > relatedField.get.name => (model2, model2OnDelete, model1, model1OnDelete)
+        case _ if model1 == model2                                                                           => (model1, model1OnDelete, model2, model2OnDelete)
+
+      }
 
       /**
         * 1: has relation directive. use that one.
@@ -185,23 +206,23 @@ case class SchemaInferrerImpl(
         def concat(modelName: String, otherModelName: String): String = {
           val concatenatedString = s"${modelName}To${otherModelName}"
 
-          !NameConstraints.isValidRelationName(concatenatedString) match {
-            case true if otherModelName.length > modelName.length => concat(modelName, otherModelName.substring(0, otherModelName.length - 1))
-            case true                                             => concat(modelName.substring(0, modelName.length - 1), otherModelName)
-            case false                                            => concatenatedString
+          NameConstraints.isValidRelationName(concatenatedString) match {
+            case false if otherModelName.length > modelName.length => concat(modelName, otherModelName.substring(0, otherModelName.length - 1))
+            case false                                             => concat(modelName.substring(0, modelName.length - 1), otherModelName)
+            case true                                              => concatenatedString
           }
         }
         concat(modelA, modelB)
       }
 
       val relationNameOnRelatedField: Option[String] = relatedField.flatMap(_.relationName)
+
       val relationName = (relationField.relationName, relationNameOnRelatedField) match {
-        case (Some(name), _) if !NameConstraints.isValidRelationName(name)    => throw InvalidRelationName(name)
-        case (None, Some(name)) if !NameConstraints.isValidRelationName(name) => throw InvalidRelationName(name)
-        case (Some(name), _)                                                  => name
-        case (None, Some(name))                                               => name
-        case (None, None)                                                     => generateRelationName
+        case (Some(name), _)    => name
+        case (None, Some(name)) => name
+        case (None, None)       => generateRelationName
       }
+
       val previousModelAName = schemaMapping.getPreviousModelName(modelA)
       val previousModelBName = schemaMapping.getPreviousModelName(modelB)
 
@@ -211,7 +232,7 @@ case class SchemaInferrerImpl(
       val oldEquivalentRelation = oldEquivalentRelationByName.orElse {
         UnambiguousRelation.unambiguousRelationThatConnectsModels(baseSchema, previousModelAName, previousModelBName)
       }
-      val relationManifestation = relationManifestationOnFieldOrRelatedField(prismaType, relationField)
+      val relationManifestation = relationManifestationOnFieldOrRelatedField(prismaType, relationField, relationName)
 
       val nextRelation = RelationTemplate(
         name = relationName,
@@ -231,80 +252,91 @@ case class SchemaInferrerImpl(
         case None => nextRelation
       }
     }
-    tmp.groupBy(_.name).values.flatMap(_.headOption).toSet
-  }
 
-  def relationManifestationOnFieldOrRelatedField(prismaType: PrismaType, relationField: RelationalPrismaField): Option[RelationManifestation] = {
-    if (!capabilities.contains(MigrationsCapability) || capabilities.contains(MongoRelationsCapability)) {
-      val manifestationOnThisField = relationManifestationOnField(prismaType, relationField)
-      val manifestationOnRelatedField = relationField.relatedField.flatMap { relatedField =>
-        val relatedType = prismaSdl.types.find(_.name == relationField.referencesType).get
-        relationManifestationOnField(relatedType, relatedField)
-      }
-      manifestationOnThisField.orElse(manifestationOnRelatedField)
-    } else {
-      None
+    val grouped: Map[String, Vector[RelationTemplate]] = tmp.groupBy(_.name)
+
+    //two unnamed relations whose autogenerated names would be shortened to the same name
+    grouped.foreach { group =>
+      val first          = group._2.head
+      val wrongDuplicate = group._2.find(template => !template.connectsTheModels(first.modelAName, first.modelBName))
+      wrongDuplicate.map(x => throw RelationNameNeeded(group._1, first.modelAName, first.modelBName, x.modelAName, x.modelBName))
     }
+
+    grouped.values.flatMap(_.headOption).toSet
   }
 
-  def relationManifestationOnField(prismaType: PrismaType, relationField: RelationalPrismaField): Option[RelationManifestation] = {
-    val relatedType         = relationField.relatedType
-    val tableForThisType    = prismaType.finalTableName
-    val tableForRelatedType = relatedType.finalTableName
-    val isThisModelA        = isModelA(prismaType.name, relationField.referencesType)
-
-    relationField.relationDbDirective match {
-      case Some(inlineDirective: MongoInlineRelationDirective) =>
-        Some(InlineRelationManifestation(inTableOfModelId = prismaType.name, referencingColumn = inlineDirective.field))
-
-      case Some(inlineDirective: PGInlineRelationDirective) =>
-        Some(InlineRelationManifestation(inTableOfModelId = prismaType.name, referencingColumn = inlineDirective.column))
-
-      case Some(tableDirective: RelationTableDirective) =>
-        val inferredTable        = inferredTables.relationTables.find(_.name == tableDirective.table)
-        def columnForThisType    = tableDirective.thisColumn.orElse(inferredTable.flatMap(table => table.columnForTable(tableForThisType)))
-        def columnForRelatedType = tableDirective.otherColumn.orElse(inferredTable.flatMap(table => table.columnForTable(tableForRelatedType)))
-
-        for {
-          modelAColumn <- if (isThisModelA) columnForThisType else columnForRelatedType
-          modelBColumn <- if (isThisModelA) columnForRelatedType else columnForThisType
-        } yield {
-          RelationTableManifestation(
-            table = tableDirective.table,
-            modelAColumn = modelAColumn,
-            modelBColumn = modelBColumn
-          )
+  def relationManifestationOnFieldOrRelatedField(
+      prismaType: PrismaType,
+      relationField: RelationalPrismaField,
+      relationName: String
+  ): Option[RelationLinkManifestation] = {
+    relationField.relatedField match {
+      case Some(relatedField) =>
+        (relationField.strategy, relatedField.strategy) match {
+          case (None, None) if relationField.isOne  => manifestationForField(prismaType, relationField, relationName)
+          case (None, None) if relationField.isList => manifestationForField(relatedField.tpe, relatedField, relationName)
+          case (_, None)                            => manifestationForField(prismaType, relationField, relationName)
+          case (None, _)                            => manifestationForField(relatedField.tpe, relatedField, relationName)
+          case (_, _)                               => sys.error("Must not happen.")
         }
 
       case None =>
-        inferredTables.relationTables
-          .find { relationTable =>
-            relationTable.referencesTheTables(tableForThisType, tableForRelatedType)
-          }
-          .flatMap { inferredTable =>
-            val columnForThisType    = inferredTable.columnForTable(tableForThisType)
-            val columnForRelatedType = inferredTable.columnForTable(tableForRelatedType)
+        manifestationForField(prismaType, relationField, relationName)
+    }
+  }
 
-            for {
-              modelAColumn <- if (isThisModelA) columnForThisType else columnForRelatedType
-              modelBColumn <- if (isThisModelA) columnForRelatedType else columnForThisType
-            } yield {
-              RelationTableManifestation(
-                table = inferredTable.name,
-                modelAColumn = modelAColumn,
-                modelBColumn = modelBColumn
-              )
+  private def manifestationForField(prismaType: PrismaType, relationField: RelationalPrismaField, relationName: String): Option[RelationLinkManifestation] = {
+    val activeStrategy = relationField.strategy match {
+      case Some(strat)                                                                                  => strat
+      case None if prismaSdl.relationTable(relationName).isDefined                                      => RelationStrategy.Table
+      case None if relationField.hasManyToManyRelation && capabilities.has(RelationLinkTableCapability) => RelationStrategy.Table
+      case None if relationField.hasManyToManyRelation && capabilities.has(RelationLinkListCapability)  => RelationStrategy.Inline
+      case None if relationField.hasOneToManyRelation && relationField.isOne                            => RelationStrategy.Inline
+      case None =>
+        sys.error(
+          s"The datamodel validation should have required an explicit strategy here. Relation field was ${relationField.name} and related field was ${relationField.relatedField
+            .map(_.name)}")
+    }
+
+    activeStrategy match {
+      case RelationStrategy.Inline =>
+        if (relationField.relatedType.isEmbedded) {
+          None
+        } else if (capabilities.has(RelationLinkListCapability)) {
+          Some(EmbeddedRelationLink(inTableOfModelName = prismaType.name, referencingColumn = relationField.finalDbName))
+        } else {
+          // this can be only one to many in SQL
+          val oneRelationField = relationField.oneRelationField.get
+          Some(EmbeddedRelationLink(inTableOfModelName = oneRelationField.tpe.name, referencingColumn = oneRelationField.finalDbName))
+        }
+
+      case RelationStrategy.Table =>
+        prismaSdl.relationTable(relationName) match {
+          case Some(relationTable) =>
+            // FIXME: this is a duplication of the name logic in `nextRelations`
+            val (modelX, modelY) = (prismaType.name, relationField.referencesType)
+            val (modelA, modelB) = if (modelX < modelY) (modelX, modelY) else (modelY, modelX)
+            val modelAColumn = if (modelA == modelB) {
+              relationTable.relationFields(0)
+            } else {
+              relationTable.relationFields.find(_.referencesType == modelA).get
             }
-          }
-          .orElse {
-            for {
-              referencedType <- prismaSdl.types.find(_.name == relationField.referencesType)
-              modelTable     <- inferredTables.modelTables.find(_.name == prismaType.finalTableName)
-              column         <- modelTable.columnNameForReferencedTable(referencedType.tableName.getOrElse(referencedType.name))
-            } yield {
-              InlineRelationManifestation(prismaType.name, column)
+            val modelBColumn = if (modelA == modelB) {
+              relationTable.relationFields(1)
+            } else {
+              relationTable.relationFields.find(_.referencesType == modelB).get
             }
-          }
+
+            Some(
+              RelationTable(
+                table = relationTable.finalTableName,
+                modelAColumn = modelAColumn.finalDbName,
+                modelBColumn = modelBColumn.finalDbName,
+                idColumn = relationTable.scalarFields.find(_.isId).map(_.finalDbName)
+              ))
+          case None =>
+            Some(RelationTable(table = "_" + relationName, modelAColumn = "A", modelBColumn = "B"))
+        }
     }
   }
 

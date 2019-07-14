@@ -1,17 +1,19 @@
 package com.prisma.api.mutations
 
 import com.prisma.api.ApiSpecBase
-import com.prisma.shared.models.Project
 import com.prisma.shared.schema_dsl.SchemaDsl
 import org.scalatest.{FlatSpec, Matchers}
 
 class DeleteMutationSpec extends FlatSpec with Matchers with ApiSpecBase {
 
-  val project: Project = SchemaDsl.fromBuilder { schema =>
-    schema
-      .model("ScalarModel")
-      .field("string", _.String)
-      .field("unicorn", _.String, isUnique = true)
+  val project = SchemaDsl.fromStringV11() {
+    """
+      |type ScalarModel {
+      |  id: ID! @id
+      |  string: String
+      |  unicorn: String @unique
+      |}
+    """.stripMargin
   }
 
   override protected def beforeAll(): Unit = {
@@ -32,10 +34,10 @@ class DeleteMutationSpec extends FlatSpec with Matchers with ApiSpecBase {
     val id =
       server.query(s"""mutation {createScalarModel(data: {string: "test"}){id}}""", project = project).pathAsString("data.createScalarModel.id")
     server.queryThatMustFail(
-      s"""mutation {deleteScalarModel(where: {id: "DOES NOT EXIST"}){id}}""",
+      s"""mutation {deleteScalarModel(where: {id: "5beea4aa6183dd734b2dbd9b"}){id}}""",
       project = project,
       errorCode = 3039,
-      errorContains = "No Node for the model ScalarModel with value DOES NOT EXIST for id found"
+      errorContains = "No Node for the model ScalarModel with value 5beea4aa6183dd734b2dbd9b for id found"
     )
     server.query(s"""query {scalarModels{string}}""", project = project, dataContains = s"""{"scalarModels":[{"string":"test"}]}""")
   }

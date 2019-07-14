@@ -1,7 +1,7 @@
 package com.prisma.api.mutations.embedded
 
 import com.prisma.api.ApiSpecBase
-import com.prisma.shared.models.ApiConnectorCapability.EmbeddedTypesCapability
+import com.prisma.shared.models.ConnectorCapability.EmbeddedTypesCapability
 import com.prisma.shared.schema_dsl.SchemaDsl
 import org.scalatest.{FlatSpec, Matchers}
 
@@ -13,19 +13,18 @@ class EmbeddedWhereAndDateTimeSpec extends FlatSpec with Matchers with ApiSpecBa
     val outerWhere = """"2018-12-05T12:34:23.000Z""""
     val innerWhere = """"2019-12-05T12:34:23.000Z""""
 
-    val project = SchemaDsl.fromString() {
+    val project = SchemaDsl.fromStringV11() {
       """type Note{
-        |   id: ID! @unique
+        |   id: ID! @id
         |   outerString: String!
         |   outerDateTime: DateTime! @unique
-        |   todos: [Todo!]!
+        |   todos: [Todo]
         |}
         |
         |type Todo @embedded{
         |   innerString: String!
-        |   innerDateTime: DateTime! @unique
+        |   innerDateTime: DateTime!
         |}"""
-
     }
 
     database.setup(project)
@@ -57,7 +56,7 @@ class EmbeddedWhereAndDateTimeSpec extends FlatSpec with Matchers with ApiSpecBa
          |    data: {
          |      outerString: "Changed Outer String"
          |      todos: {
-         |        update: [{where: { innerDateTime: $innerWhere },data:{ innerString: "Changed Inner String"}}]
+         |        updateMany: [{where: { innerDateTime: $innerWhere },data:{ innerString: "Changed Inner String"}}]
          |      }
          |    }
          |  ){
@@ -81,17 +80,17 @@ class EmbeddedWhereAndDateTimeSpec extends FlatSpec with Matchers with ApiSpecBa
     val outerWhere = """"2018-01-03T11:27:38+00:00""""
     val innerWhere = """"2018-01-03T11:27:38+00:00""""
 
-    val project = SchemaDsl.fromString() {
+    val project = SchemaDsl.fromStringV11() {
       """type Note{
-        |   id: ID! @unique
+        |   id: ID! @id
         |   outerString: String!
         |   outerDateTime: DateTime! @unique
-        |   todos: [Todo!]!
+        |   todos: [Todo]
         |}
         |
         |type Todo @embedded{
         |   innerString: String!
-        |   innerDateTime: DateTime! @unique
+        |   innerDateTime: DateTime!
         |}"""
 
     }
@@ -125,8 +124,8 @@ class EmbeddedWhereAndDateTimeSpec extends FlatSpec with Matchers with ApiSpecBa
          |    data: {
          |      outerString: "Changed Outer String"
          |      todos: {
-         |        update: [
-         |        {where: { innerDateTime: $innerWhere },data:{ innerString: "Changed Inner String"}}
+         |        updateMany: [
+         |          { where: { innerDateTime: $innerWhere },data:{ innerString: "Changed Inner String"} }
          |        ]
          |      }
          |    }

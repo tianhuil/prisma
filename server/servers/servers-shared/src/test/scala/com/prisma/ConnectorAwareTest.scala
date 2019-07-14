@@ -1,16 +1,31 @@
 package com.prisma
 
-import com.prisma.ConnectorTag.{MongoConnectorTag, MySqlConnectorTag, PostgresConnectorTag}
 import com.prisma.config.{DatabaseConfig, PrismaConfig}
+import com.prisma.shared.models.{ConnectorCapabilities, ConnectorCapability}
 import enumeratum.{Enum, EnumEntry}
 import org.scalatest.{Suite, SuiteMixin, Tag}
 
-object IgnorePostgres extends Tag("ignore.postgres")
-object IgnoreMySql    extends Tag("ignore.mysql")
-object IgnoreMongo    extends Tag("ignore.mongo")
+sealed trait AssociatedWithConnectorTags {
+  def tag: ConnectorTag
+}
+
+object IgnorePostgres extends Tag("ignore.postgres") with AssociatedWithConnectorTags {
+  override def tag = ConnectorTag.PostgresConnectorTag
+}
+object IgnoreMySql extends Tag("ignore.mysql") with AssociatedWithConnectorTags {
+  override def tag = ConnectorTag.MySqlConnectorTag
+}
+object IgnoreMongo extends Tag("ignore.mongo") with AssociatedWithConnectorTags {
+  override def tag = ConnectorTag.MongoConnectorTag
+}
+object IgnoreSQLite extends Tag("ignore.sqlite") with AssociatedWithConnectorTags {
+  override def tag = ConnectorTag.SQLiteConnectorTag
+}
 
 object IgnoreSet {
-  val ignoreConnectorTags = Set(IgnorePostgres, IgnoreMySql, IgnoreMongo)
+  val ignoreConnectorTags = Set(IgnorePostgres, IgnoreMySql, IgnoreMongo, IgnoreSQLite)
+
+  def byName(name: String): Option[AssociatedWithConnectorTags] = ignoreConnectorTags.find(_.name == name)
 }
 
 sealed trait ConnectorTag extends EnumEntry
@@ -18,31 +33,33 @@ object ConnectorTag extends Enum[ConnectorTag] {
   def values = findValues
 
   sealed trait RelationalConnectorTag extends ConnectorTag
-  object RelationalConnectorTag       extends RelationalConnectorTag
   object MySqlConnectorTag            extends RelationalConnectorTag
   object PostgresConnectorTag         extends RelationalConnectorTag
+  object SQLiteConnectorTag           extends RelationalConnectorTag
   sealed trait DocumentConnectorTag   extends ConnectorTag
   object MongoConnectorTag            extends DocumentConnectorTag
 }
 
-trait ConnectorAwareTest[CapabilityType] extends SuiteMixin { self: Suite =>
+trait ConnectorAwareTest extends SuiteMixin { self: Suite =>
   import IgnoreSet._
   def prismaConfig: PrismaConfig
 
   lazy val connector = prismaConfig.databases.head
-  private lazy val connectorTag = connector.connector match {
-    case "mongo"    => MongoConnectorTag
-    case "mysql"    => MySqlConnectorTag
-    case "postgres" => PostgresConnectorTag
+  lazy val connectorTag = connector.connector match {
+    case "mongo"                                                 => ConnectorTag.MongoConnectorTag
+    case "mysql"                                                 => ConnectorTag.MySqlConnectorTag
+    case "postgres" | "postgres-native"                          => ConnectorTag.PostgresConnectorTag
+    case "sqlite" | "sqlite-native" | "native-integration-tests" => ConnectorTag.SQLiteConnectorTag
   }
-  private lazy val isPrototype: Boolean = connectorTag == MongoConnectorTag
+  private lazy val isPrototype: Boolean = prismaConfig.isPrototype
 
-  def capabilities: Set[CapabilityType] // capabilities of the current connector
-  def runOnlyForConnectors: Set[ConnectorTag]      = ConnectorTag.values.toSet
-  def runOnlyForCapabilities: Set[CapabilityType]  = Set.empty
-  def doNotRunForCapabilities: Set[CapabilityType] = Set.empty
-  def doNotRunForPrototypes: Boolean               = false
-  def doNotRun: Boolean                            = false
+  def capabilities: ConnectorCapabilities
+  def runOnlyForConnectors: Set[ConnectorTag]           = ConnectorTag.values.toSet
+  def doNotRunForConnectors: Set[ConnectorTag]          = Set.empty
+  def runOnlyForCapabilities: Set[ConnectorCapability]  = Set.empty
+  def doNotRunForCapabilities: Set[ConnectorCapability] = Set.empty
+  def doNotRunForPrototypes: Boolean                    = false
+  def doNotRun: Boolean                                 = false
 
   abstract override def tags: Map[String, Set[String]] = { // this must NOT be a val. Otherwise ScalaTest does not behave correctly.
     if (shouldSuiteBeIgnored || doNotRun) {
@@ -53,22 +70,23 @@ trait ConnectorAwareTest[CapabilityType] extends SuiteMixin { self: Suite =>
   }
 
   private lazy val shouldSuiteBeIgnored: Boolean = { // this must be a val. Otherwise printing would happen many times.
-    val connectorHasTheRightCapabilities = runOnlyForCapabilities.forall(connectorHasCapability) || runOnlyForCapabilities.isEmpty
-    val connectorHasAWrongCapability     = doNotRunForCapabilities.exists(connectorHasCapability)
-    val isNotTheRightConnector           = !runOnlyForConnectors.contains(connectorTag)
+    val connectorHasTheRightCapabilities = runOnlyForCapabilities.forall(capabilities.has) || runOnlyForCapabilities.isEmpty
+    val connectorHasAWrongCapability     = doNotRunForCapabilities.exists(capabilities.has)
+    val isTheRightConnector              = runOnlyForConnectors.contains(connectorTag) && !doNotRunForConnectors.contains(connectorTag)
 
-    if (isNotTheRightConnector) {
+    if (!isTheRightConnector) {
       println(
         s"""the suite ${self.getClass.getSimpleName} will be ignored because the current connector is not right
            | allowed connectors: ${runOnlyForConnectors.mkString(",")}
-           | current connector: ${connectorTag}
+           | disallowed connectors: ${doNotRunForConnectors.mkString(",")}
+           | current connector: $connectorTag
          """.stripMargin
       )
       true
     } else if (isPrototype && doNotRunForPrototypes) {
       println(
         s"""the suite ${self.getClass.getSimpleName} will be ignored because it should not run for prototypes and the current connector is a prototype
-           | current connector: ${connectorTag}
+           | current connector: $connectorTag
          """.stripMargin
       )
       true
@@ -76,7 +94,7 @@ trait ConnectorAwareTest[CapabilityType] extends SuiteMixin { self: Suite =>
       println(
         s"""the suite ${self.getClass.getSimpleName} will be ignored because it does not have the right capabilities
            | required capabilities: ${runOnlyForCapabilities.mkString(",")}
-           | connector capabilities: ${capabilities.mkString(",")}
+           | connector capabilities: ${capabilities.capabilities.mkString(",")}
          """.stripMargin
       )
       true
@@ -84,7 +102,7 @@ trait ConnectorAwareTest[CapabilityType] extends SuiteMixin { self: Suite =>
       println(
         s"""the suite ${self.getClass.getSimpleName} will be ignored because it has a wrong capability
            | wrong capabilities: ${doNotRunForCapabilities.mkString(",")}
-           | connector capabilities: ${capabilities.mkString(",")}
+           | connector capabilities: ${capabilities.capabilities.mkString(",")}
          """.stripMargin
       )
       true
@@ -93,35 +111,26 @@ trait ConnectorAwareTest[CapabilityType] extends SuiteMixin { self: Suite =>
     }
   }
 
-  def connectorHasCapability(capability: CapabilityType): Boolean
-
-  def ifConnectorIsNotMongo[T](assertion: => T): Unit = {
-    if (connectorTag != MongoConnectorTag) {
-      assertion
-    }
-  }
-
+  def ifConnectorIsNotSQLite[T](assertion: => T): Unit = if (connectorTag != ConnectorTag.SQLiteConnectorTag) assertion
+  def ifConnectorIsSQLite[T](assertion: => T): Unit    = if (connectorTag == ConnectorTag.SQLiteConnectorTag) assertion
+  def ifConnectorIsNotMongo[T](assertion: => T): Unit  = if (connectorTag != ConnectorTag.MongoConnectorTag) assertion
   def ifConnectorIsActive[T](assertion: => T): Unit = {
-    if (connector.active && connectorTag != MongoConnectorTag) {
-      assertion
-    }
-  }
-
-  def ifConnectorIsPassive[T](assertion: => T): Unit = {
-    if (!connector.active) {
-      assertion
-    }
+    // FIXME: check if we need can bring this back, discuss with do4gr
+//    if (connector.active && connectorTag != ConnectorTag.MongoConnectorTag) assertion
   }
 
   private def ignoredTestsBasedOnIndividualTagging(connector: DatabaseConfig) = {
-    val ignoreConnectorTypes = ignoreConnectorTags.filter(_.name.endsWith(connector.connector))
-    val tagNamesToIgnore     = ignoreConnectorTypes.map(_.name)
-    super.tags.mapValues { value =>
-      val isIgnored = value.exists(tagNamesToIgnore.contains)
+    super.tags.mapValues { tagNames =>
+      val connectorTagsToIgnore: Set[ConnectorTag] = for {
+        tagName   <- tagNames
+        ignoreTag <- IgnoreSet.byName(tagName)
+      } yield ignoreTag.tag
+
+      val isIgnored = connectorTagsToIgnore.contains(connectorTag)
       if (isIgnored) {
-        value ++ Set("org.scalatest.Ignore")
+        tagNames ++ Set("org.scalatest.Ignore")
       } else {
-        value
+        tagNames
       }
     }
   }

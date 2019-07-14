@@ -1,25 +1,25 @@
 package com.prisma.api.mutations.nonEmbedded
 
 import com.prisma.api.ApiSpecBase
-import com.prisma.shared.models.ApiConnectorCapability.JoinRelationsCapability
+import com.prisma.shared.models.ConnectorCapability.JoinRelationLinksCapability
 import com.prisma.shared.schema_dsl.SchemaDsl
 import org.scalatest.{FlatSpec, Matchers}
 
 class NonEmbeddedSettingNodeSelectorToNullSpec extends FlatSpec with Matchers with ApiSpecBase {
-  override def runOnlyForCapabilities = Set(JoinRelationsCapability)
+  override def runOnlyForCapabilities = Set(JoinRelationLinksCapability)
 
   "Setting a where value to null " should "should only update one if there are several nulls for the specified node selector" in {
-    val project = SchemaDsl.fromString() {
+    val project = SchemaDsl.fromStringV11() {
       """
         |type A {
-        |  id: ID! @unique
+        |  id: ID! @id
         |  b: String @unique
         |  key: String! @unique
-        |  c: C
+        |  c: C @relation(link: INLINE)
         |}
         |
         |type C {
-        |  id: ID! @unique
+        |  id: ID! @id
         |  c: String
         |}
       """

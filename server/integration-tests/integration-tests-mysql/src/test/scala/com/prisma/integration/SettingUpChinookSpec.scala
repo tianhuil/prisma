@@ -12,36 +12,36 @@ class SettingUpChinookSpec extends FlatSpec with Matchers with IntegrationBaseSp
 
     val schema =
       """type Artist {
-        |  id: ID! @unique
+        |  id: ID! @id
         |  ArtistId: Int! @unique
         |  Name: String!
-        |  Albums: [Album!]!
+        |  Albums: [Album]
         |}
         |
         |type Album {
-        |  id: ID! @unique
+        |  id: ID! @id
         |  AlbumId: Int! @unique
         |  Title: String!
         |  Artist: Artist!
-        |  Tracks: [Track!]!
+        |  Tracks: [Track]
         |}
         |
         |type Genre {
-        |  id: ID! @unique
+        |  id: ID! @id
         |  GenreId: Int! @unique
         |  Name: String!
-        |  Tracks: [Track!]!
+        |  Tracks: [Track]
         |}
         |
         |type MediaType {
-        |  id: ID! @unique
+        |  id: ID! @id
         |  MediaTypeId: Int! @unique
         |  Name: String!
-        |  Tracks: [Track!]!
+        |  Tracks: [Track]
         |}
         |
         |type Track {
-        |  id: ID! @unique
+        |  id: ID! @id
         |  TrackId: Int! @unique
         |  Name: String!
         |  Album: Album!

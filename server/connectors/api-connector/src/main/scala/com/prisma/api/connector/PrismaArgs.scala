@@ -19,22 +19,22 @@ case class PrismaArgs(raw: GCValue) {
       this
     } else {
       lazy val now = DateTimeGCValue(DateTime.now(DateTimeZone.UTC))
-      (model.hasCreatedAtField, model.hasUpdatedAtField) match {
-        case (true, true)   => PrismaArgs(RootGCValue(rootGCMap + ("createdAt" -> now) + ("updatedAt" -> now)))
-        case (true, false)  => PrismaArgs(RootGCValue(rootGCMap + ("createdAt" -> now)))
-        case (false, true)  => PrismaArgs(RootGCValue(rootGCMap + ("updatedAt" -> now)))
-        case (false, false) => this
+      (model.createdAtField, model.updatedAtField) match {
+        case (Some(createdAt), Some(updatedAt)) => PrismaArgs(RootGCValue(rootGCMap + (createdAt.name -> now) + (updatedAt.name -> now)))
+        case (Some(createdAt), None)            => PrismaArgs(RootGCValue(rootGCMap + (createdAt.name -> now)))
+        case (None, Some(updatedAt))            => PrismaArgs(RootGCValue(rootGCMap + (updatedAt.name -> now)))
+        case (None, None)                       => this
       }
     }
 
-  def updateDateTimesIfNecessary(model: Model) =
-    if (isEmpty) {
+  def updateDateTimesIfNecessary(model: Model, listCausesUpdate: Boolean) =
+    if (isEmpty && !listCausesUpdate) {
       this
     } else {
       lazy val now = DateTimeGCValue(DateTime.now(DateTimeZone.UTC))
-      model.hasUpdatedAtField match {
-        case true  => PrismaArgs(RootGCValue(rootGCMap + ("updatedAt" -> now)))
-        case false => this
+      model.updatedAtField match {
+        case Some(field) => PrismaArgs(RootGCValue(rootGCMap + (field.name -> now)))
+        case None        => this
       }
     }
 }

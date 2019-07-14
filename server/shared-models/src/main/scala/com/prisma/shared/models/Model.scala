@@ -1,6 +1,7 @@
 package com.prisma.shared.models
 
-import com.prisma.shared.models.Manifestations.ModelManifestation
+import com.prisma.shared.SpecialEnvVars
+import com.prisma.shared.models.Manifestations.{FieldManifestation, ModelManifestation}
 
 import scala.language.implicitConversions
 
@@ -19,7 +20,7 @@ object Model {
 
   val empty: Model = new Model(
     template = ModelTemplate(name = "", stableIdentifier = "", isEmbedded = false, fieldTemplates = List.empty, manifestation = None),
-    schema = Schema.empty
+    schema = Schema.emptyV11
   )
 }
 class Model(
@@ -27,8 +28,12 @@ class Model(
     val schema: Schema
 ) {
   import template._
+  val isLegacy = schema.isLegacy
 
-  val dbName: String                                     = manifestation.map(_.dbName).getOrElse(name)
+  val dbName: String = {
+    val dbNameTmp = manifestation.map(_.dbName).getOrElse(name)
+    if (SpecialEnvVars.lowerCasedTableNames) dbNameTmp.toLowerCase else dbNameTmp
+  }
   lazy val fields: List[Field]                           = fieldTemplates.map(_.build(this))
   lazy val scalarFields: List[ScalarField]               = fields.collect { case f: ScalarField => f }
   lazy val scalarListFields: List[ScalarField]           = scalarFields.filter(_.isList)
@@ -38,17 +43,29 @@ class Model(
   lazy val relationListFields: List[RelationField]       = relationFields.filter(_.isList)
   lazy val relationNonListFields: List[RelationField]    = relationFields.filter(!_.isList)
   lazy val visibleRelationFields: List[RelationField]    = relationFields.filter(_.isVisible)
-  lazy val cascadingRelationFields: List[RelationField]  = relationFields.filter(field => field.relation.sideOfModelCascades(this))
-  lazy val nonListFields                                 = fields.filter(!_.isList)
-  lazy val idField                                       = getScalarFieldByName("id")
-  lazy val idField_!                                     = getScalarFieldByName_!("id")
-  lazy val dbNameOfIdField_!                             = idField_!.dbName
-  lazy val hasUpdatedAtField                             = getFieldByName("updatedAt").isDefined
-  lazy val hasCreatedAtField                             = getFieldByName("createdAt").isDefined
+  lazy val nonListFields: List[Field]                    = fields.filter(!_.isList)
+  lazy val idField: Option[ScalarField]                  = scalarFields.find(_.isId)
+  lazy val createdAtField: Option[ScalarField]           = scalarFields.find(_.isCreatedAt)
+  lazy val updatedAtField: Option[ScalarField]           = scalarFields.find(_.isUpdatedAt)
+  lazy val idField_! : ScalarField                       = idField.getOrElse(sys.error(s"The model $name has no id field!"))
+  lazy val dbNameOfIdField_! : String                    = idField_!.dbName
+  lazy val hasUpdatedAtField: Boolean                    = scalarFields.exists(_.isUpdatedAt)
+  lazy val hasCreatedAtField: Boolean                    = scalarFields.exists(_.isCreatedAt)
   lazy val hasVisibleIdField: Boolean                    = idField.exists(_.isVisible)
 
+  def dummyField(rf: RelationField): ScalarField =
+    idField_!.copy(name = rf.name,
+                   isList = rf.isList,
+                   manifestation = Some(FieldManifestation(rf.dbName)),
+                   template = idField_!.template.copy(behaviour = None))
+
+  lazy val cascadingRelationFields: List[RelationField] = relationFields.collect {
+    case field if field.relationSide == RelationSide.A && field.relation.template.modelAOnDelete == OnDelete.Cascade => field
+    case field if field.relationSide == RelationSide.B && field.relation.template.modelBOnDelete == OnDelete.Cascade => field
+  }
+
   lazy val inlineFields = relationFields.collect {
-    case rf if rf.relation.isInlineRelation && rf.relation.inlineManifestation.get.inTableOfModelId == this.name => rf
+    case rf if rf.relation.isInlineRelation && rf.relation.inlineManifestation.get.inTableOfModelName == this.name => rf
   }
 
   def filterScalarFields(fn: ScalarField => Boolean): Model = {
@@ -63,7 +80,6 @@ class Model(
   def getScalarFieldByName(name: String): Option[ScalarField] = getFieldByName(name).map(_.asInstanceOf[ScalarField])
   def getFieldByName_!(name: String): Field                   = getFieldByName(name).getOrElse(sys.error(s"field $name is not part of the model ${this.name}"))
   def getFieldByName(name: String): Option[Field]             = fields.find(_.name == name)
-  def getFieldByDBName_!(name: String): Field                 = getFieldByDBName(name).getOrElse(sys.error(s"field $name is not part of the model ${this.name}"))
+  def getFieldByDBName_!(name: String): Field                 = getFieldByDBName(name).getOrElse(sys.error(s"a field with db name $name is not part of the model ${this.name}"))
   def getFieldByDBName(name: String): Option[Field]           = fields.find(_.dbName == name)
-
 }

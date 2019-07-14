@@ -1,0 +1,4 @@
+db/*
+!.placeholder
+build/
+prisma.yml

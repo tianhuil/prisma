@@ -1,7 +1,7 @@
 package com.prisma.api.mutations.embedded
 
 import com.prisma.api.ApiSpecBase
-import com.prisma.shared.models.ApiConnectorCapability.EmbeddedTypesCapability
+import com.prisma.shared.models.ConnectorCapability.EmbeddedTypesCapability
 import com.prisma.shared.schema_dsl.SchemaDsl
 import org.scalatest.{FlatSpec, Matchers}
 
@@ -10,23 +10,24 @@ class MongoBug1 extends FlatSpec with Matchers with ApiSpecBase {
 
   "Mixing Join and Embedded" should "work 1" in {
 
-    val project = SchemaDsl.fromString() {
+    val project = SchemaDsl.fromStringV11() {
       """type Top {
+        |  id: ID! @id
         |  top: String @unique
-        |  otherTops: [OtherTop!]! @mongoRelation(field: "otherTops")
+        |  otherTops: [OtherTop] @relation(link: INLINE)
         |}
         |
         |
         |type OtherTop {
-        |  id: ID! @unique
+        |  id: ID! @id
         |  otherTop: String @unique
         |  nested: Nested
         |  }
         |
         |
         |type Nested @embedded {
-        |  id: ID! @unique
-        |  nested: String @unique
+        |  id: ID! @id
+        |  nested: String
         |}
         |"""
     }
@@ -70,23 +71,24 @@ class MongoBug1 extends FlatSpec with Matchers with ApiSpecBase {
 
   "Mixing Join and Embedded" should "work 2" in {
 
-    val project = SchemaDsl.fromString() {
+    val project = SchemaDsl.fromStringV11() {
       """type Top {
+        |  id: ID! @id
         |  top: String @unique
-        |  otherTops: [OtherTop!]! @mongoRelation(field: "otherTops")
+        |  otherTops: [OtherTop] @relation(link:INLINE)
         |}
         |
         |
         |type OtherTop {
-        |  id: ID! @unique
+        |  id: ID! @id
         |  otherTop: String @unique
         |  nested: Nested
-        |  }
+        |}
         |
         |
         |type Nested @embedded {
-        |  id: ID! @unique
-        |  nested: String @unique
+        |  id: ID! @id
+        |  nested: String
         |}
         |"""
     }
@@ -118,23 +120,24 @@ class MongoBug1 extends FlatSpec with Matchers with ApiSpecBase {
 
   "Mixing Join and Embedded" should "work 3" in {
 
-    val project = SchemaDsl.fromString() {
+    val project = SchemaDsl.fromStringV11() {
       """type Top {
+        |  id: ID! @id
         |  top: String @unique
-        |  otherTops: [OtherTop!]! @mongoRelation(field: "otherTops")
+        |  otherTops: [OtherTop] @relation(link: INLINE)
         |}
         |
         |
         |type OtherTop {
-        |  id: ID! @unique
+        |  id: ID! @id
         |  otherTop: String @unique
         |  nested: Nested
-        |  }
+        |}
         |
         |
         |type Nested @embedded {
-        |  id: ID! @unique
-        |  nested: String @unique
+        |  id: ID! @id
+        |  nested: String
         |}
         |"""
     }
@@ -169,9 +172,10 @@ class MongoBug1 extends FlatSpec with Matchers with ApiSpecBase {
 
   "Mixing Join and Embedded" should "work 4" in {
 
-    val project = SchemaDsl.fromString() {
+    val project = SchemaDsl.fromStringV11() {
       """type Item {
-        |  subItems: [SubItem!]!
+        |  id: ID! @id
+        |  subItems: [SubItem]
         |}
         |
         |type SubItem @embedded {
@@ -206,8 +210,9 @@ class MongoBug1 extends FlatSpec with Matchers with ApiSpecBase {
 
   "Mixing Join and Embedded" should "work 5" in {
 
-    val project = SchemaDsl.fromString() {
+    val project = SchemaDsl.fromStringV11() {
       """type Item {
+        |  id: ID! @id
         |  subItem: SubItem
         |}
         |
@@ -243,12 +248,14 @@ class MongoBug1 extends FlatSpec with Matchers with ApiSpecBase {
 
   "Mixing Join and Embedded" should "work 6" in {
 
-    val project = SchemaDsl.fromString() {
+    val project = SchemaDsl.fromStringV11() {
       """type Item {
-        |  subItems: [SubItem!]! @mongoRelation(field: "subItems")
+        |  id: ID! @id
+        |  subItems: [SubItem] @relation(link: INLINE)
         |}
         |
         |type SubItem {
+        |  id: ID! @id
         |  subSubItem: SubSubItem
         |}
         |type SubSubItem @embedded {

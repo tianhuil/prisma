@@ -38,12 +38,12 @@ object MissingBackRelations {
       isList = true,
       isUnique = false,
       isHidden = true,
-      isReadonly = false,
       enum = None,
       defaultValue = None,
       relationName = Some(relation.name),
       relationSide = Some(relationSide),
-      manifestation = None
+      manifestation = None,
+      behaviour = None
     )
   }
 }

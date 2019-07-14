@@ -1,32 +1,34 @@
 package com.prisma.api.mutations
 
-import com.prisma.api.ApiSpecBase
+import com.prisma.api.{ApiSpecBase, TestDataModels}
 import com.prisma.api.util.TroubleCharacters
-import com.prisma.shared.models.ApiConnectorCapability.ScalarListsCapability
+import com.prisma.shared.models.ConnectorCapability.ScalarListsCapability
 import com.prisma.shared.schema_dsl.SchemaDsl
 import org.scalatest.{FlatSpec, Matchers}
+import play.api.libs.json.{JsValue, Json}
 
 class CreateMutationListSpec extends FlatSpec with Matchers with ApiSpecBase {
 
   override def runOnlyForCapabilities = Set(ScalarListsCapability)
 
-  val project = SchemaDsl.fromBuilder { schema =>
-    val enum = schema.enum(
-      name = "MyEnum",
-      values = Vector(
-        "A",
-        "ABCDEFGHIJABCDEFGHIJABCDEFGHIJABCDEFGHIJABCDEFGHIJABCDEFGHIJABCDEFGHIJABCDEFGHIJABCDEFGHIJABCDEFGHIJABCDEFGHIJABCDEFGHIJABCDEFGHIJABCDEFGHIJABCDEFGHIJABCDEFGHIJABCDEFGHIJABCDEFGHIJABCDEFGHIJABCDEFGHIJ"
-      )
-    )
-    schema
-      .model("ScalarModel")
-      .field("optStrings", _.String, isList = true)
-      .field("optInts", _.Int, isList = true)
-      .field("optFloats", _.Float, isList = true)
-      .field("optBooleans", _.Boolean, isList = true)
-      .field("optEnums", _.Enum, enum = Some(enum), isList = true)
-      .field("optDateTimes", _.DateTime, isList = true)
-      .field("optJsons", _.Json, isList = true)
+  val project = SchemaDsl.fromStringV11() {
+    s"""
+      |type ScalarModel {
+      |  id: ID! @id
+      |  optStrings: [String] $scalarListDirective
+      |  optInts: [Int] $scalarListDirective
+      |  optFloats: [Float] $scalarListDirective
+      |  optBooleans: [Boolean] $scalarListDirective
+      |  optEnums: [MyEnum] $scalarListDirective
+      |  optDateTimes: [DateTime] $scalarListDirective
+      |  optJsons: [Json] $scalarListDirective
+      |}
+      |
+      |enum MyEnum {
+      |  A
+      |  ABCDEFGHIJABCDEFGHIJABCDEFGHIJABCDEFGHIJABCDEFGHIJABCDEFGHIJABCDEFGHIJABCDEFGHIJABCDEFGHIJABCDEFGHIJABCDEFGHIJABCDEFGHIJABCDEFGHIJABCDEFGHIJABCDEFGHIJABCDEFGHIJABCDEFGHIJABCDEFGHIJABCDEFGHIJA
+      |}
+    """.stripMargin
   }
 
   override protected def beforeAll(): Unit = {
@@ -56,10 +58,10 @@ class CreateMutationListSpec extends FlatSpec with Matchers with ApiSpecBase {
     res.toString should be(
       s"""{"data":{"createScalarModel":{"optEnums":["A","A"],"optBooleans":[true,false],"optDateTimes":["2016-07-31T23:59:01.000Z","2017-07-31T23:59:01.000Z"],"optStrings":["lala${TroubleCharacters.value}"],"optInts":[1337,12],"optJsons":[[1,2,3]],"optFloats":[1.234,1.45]}}}""")
 
-    val queryRes = server.query("""{ scalarModels{optStrings, optInts, optFloats, optBooleans, optEnums, optDateTimes, optJsons}}""", project = project)
+    val queryRes: JsValue = server.query("""{ scalarModels{optStrings, optInts, optFloats, optBooleans, optEnums, optDateTimes, optJsons}}""", project = project)
 
-    queryRes.toString should be(
-      s"""{"data":{"scalarModels":[{"optEnums":["A","A"],"optBooleans":[true,false],"optDateTimes":["2016-07-31T23:59:01.000Z","2017-07-31T23:59:01.000Z"],"optStrings":["lala${TroubleCharacters.value}"],"optInts":[1337,12],"optJsons":[[1,2,3]],"optFloats":[1.234,1.45]}]}}""")
+    queryRes should be(
+      Json.parse(s"""{"data":{"scalarModels":[{"optEnums":["A","A"],"optBooleans":[true,false],"optDateTimes":["2016-07-31T23:59:01.000Z","2017-07-31T23:59:01.000Z"],"optStrings":["lala${TroubleCharacters.value}"],"optInts":[1337,12],"optJsons":[[1,2,3]],"optFloats":[1.234,1.45]}]}}"""))
   }
 
   "A Create Mutation" should "create and return items with empty listvalues" in {
@@ -95,6 +97,44 @@ class CreateMutationListSpec extends FlatSpec with Matchers with ApiSpecBase {
         project = project
       )
       .toString should be("""{"data":{"createScalarModel":{"optJsons":[{}]}}}""")
+
+  }
+
+  "ListValues" should "work" in {
+    val testDataModels = {
+      val dm1 = """type Top {
+                     id: ID! @id
+                     unique: Int! @unique
+                     name: String!
+                     ints: [Int]
+                  }"""
+
+      val dm2 = """type Top {
+                     id: ID! @id
+                     unique: Int! @unique
+                     name: String!
+                     ints: [Int] @scalarList(strategy: RELATION)
+                  }"""
+
+      TestDataModels(mongo = dm1, sql = dm2)
+    }
+
+    testDataModels.testV11 { project =>
+      val res = server.query(
+        s"""mutation {
+           |   createTop(data: {
+           |   unique: 1,
+           |   name: "Top",
+           |   ints: {set:[1,2,3,4,5]}
+           |}){
+           |  unique,
+           |  ints
+           |}}""",
+        project
+      )
+
+      res.toString should be("""{"data":{"createTop":{"unique":1,"ints":[1,2,3,4,5]}}}""")
+    }
 
   }
 }

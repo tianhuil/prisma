@@ -1,18 +1,26 @@
 package com.prisma.api.schema
 
 import com.prisma.api.ApiSpecBase
+import com.prisma.shared.models.ConnectorCapability
+import com.prisma.shared.models.ConnectorCapability.MongoJoinRelationLinksCapability
 import com.prisma.shared.schema_dsl.SchemaDsl
 import com.prisma.util.GraphQLSchemaMatchers
 import org.scalatest.{Matchers, WordSpec}
 import sangria.renderer.SchemaRenderer
 
 class SubscriptionsSchemaBuilderSpec extends WordSpec with Matchers with ApiSpecBase with GraphQLSchemaMatchers {
+  override def doNotRunForCapabilities: Set[ConnectorCapability] = Set(MongoJoinRelationLinksCapability)
+
   val schemaBuilder = testDependencies.apiSchemaBuilder
 
   "the single item query for a model" must {
     "be generated correctly" in {
-      val project = SchemaDsl.fromBuilder { schema =>
-        schema.model("Todo")
+      val project = SchemaDsl.fromStringV11() {
+        """
+          |type Todo {
+          |  id: ID! @id
+          |}
+        """.stripMargin
       }
 
       val schema = SchemaRenderer.renderSchema(schemaBuilder(project))
@@ -24,8 +32,12 @@ class SubscriptionsSchemaBuilderSpec extends WordSpec with Matchers with ApiSpec
     }
 
     "have correct payload" in {
-      val project = SchemaDsl.fromBuilder { schema =>
-        val testSchema = schema.model("Todo")
+      val project = SchemaDsl.fromStringV11() {
+        """
+          |type Todo {
+          |  id: ID! @id
+          |}
+        """.stripMargin
       }
 
       val schema = SchemaRenderer.renderSchema(schemaBuilder(project))

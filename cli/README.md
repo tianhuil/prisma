@@ -168,18 +168,7 @@ You can now connect to Prisma's GraphQL API, select what you would like to do ne
 
 ## Examples
 
-Collection of Prisma example projects 💡
-
-* [cli-tool](../examples/cli-tool)
-* [data-modelling](../examples/data-modelling)
-* [postgres](../examples/postgres)
-* [yaml-structure](../examples/yaml-structure)
-* [hooks](../examples/hooks)
-* [server-side-subscriptions](../examples/server-side-subscriptions)
-* [application-server](../examples/application-server)
-* [resolver-forwarding](../examples/resolver-forwarding)
-
-You can also check the [**AirBnB clone example**](https://github.com/prismagraphql/graphql-server-example) we built as a fully-featured demo app for Prisma.
+Check out the [`prisma-examples`](https://github.com/prisma/prisma-examples) 💡 containing a collection of Prisma example projects. You can also check the [**AirBnB clone example**](https://github.com/prismagraphql/graphql-server-example) we built as a fully-featured demo app for Prisma.
 
 ## Architecture
 
@@ -282,3 +271,4 @@ Releases are separated into two _channels_ - the **stable** and **unstable** cha
 * The unstable channel is released with every commit to master and therefore gives access to features and bug fixes before the stable release. You can find more information about running the Prisma on the unstable channel [here](https://github.com/prisma/prisma/blob/master/CONTRIBUTING.md#the-unstable-channel).
 
 <p align="center"><a href="https://oss.prisma.io"><img src="https://imgur.com/IMU2ERq.png" alt="Prisma" height="170px"></a></p>
+
